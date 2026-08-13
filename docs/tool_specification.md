@@ -1,340 +1,509 @@
-# Initial Tool Specifications
+# MCP Tool Specifications
 
-## Project Context
+This document defines the planned MCP tools for the fare-policy analysis agent.
 
-This document defines the initial tool specifications for the REIT7820 Transport Policy & Fares agent.
+The system separates natural-language reasoning from numerical analysis.
 
-The proposed agent will expose MCP-compatible tools that allow an orchestrator or other agents to:
+The AI agent is responsible for understanding the user's policy question, selecting the appropriate tools, deciding the order of execution, and explaining the results.
 
-1. query public transport patronage data;
-2. simulate the effects of fare-policy changes;
-3. compare multiple fare-policy scenarios.
-
-These specifications are preliminary and may be revised after supervisor feedback and Week 3 scoping.
+All numerical calculations, fare reconstruction, spatial aggregation, and socioeconomic data processing will be performed by deterministic MCP tools.
 
 ---
 
-## Tool 1: `get_patronage_summary`
+## Tool 1: `get_od_trips`
 
 ### Purpose
 
-Retrieve and summarise public transport patronage for a selected time period and transport mode.
+Retrieve observed public transport origin-destination trip records that match the user's requested conditions.
 
-This tool uses the Translink patronage dataset to provide a reliable baseline for later fare-policy analysis.
-
-### Intended Use
-
-The tool can be used when another agent or an orchestrator needs to know:
-
-- total patronage during a selected period;
-- average monthly or weekly patronage;
-- minimum and maximum patronage;
-- patronage for a specific transport mode;
-- the exact data period used in the calculation.
+This tool provides the travel-demand data required by later fare-benefit and spatial-analysis tools.
 
 ### Inputs
 
-| Parameter | Type | Required | Description |
-|---|---|---:|---|
-| `start_date` | string | Yes | Start of the analysis period, preferably in ISO format such as `2025-01-01`. |
-| `end_date` | string | Yes | End of the analysis period, preferably in ISO format such as `2025-12-31`. |
-| `mode` | string | No | Public transport mode, such as `Bus`, `Train`, `Ferry`, `Light Rail`, or `All`. |
+- `origin_stop` — optional origin stop ID
+- `destination_stop` — optional destination stop ID
+- `mode` — optional public transport mode
+- `route` — optional route
+- `time_period` — optional travel time category
+- `ticket_type` — optional ticket type
+- `month` — optional month or analysis period
 
 ### Outputs
 
-| Field | Type | Description |
-|---|---|---|
-| `total_patronage` | number | Total passenger trips in the selected period. |
-| `average_patronage` | number | Average patronage per reporting period. |
-| `minimum_patronage` | number | Lowest patronage value in the selected period. |
-| `maximum_patronage` | number | Highest patronage value in the selected period. |
-| `data_period` | object/string | Actual start and end dates used in the calculation. |
-| `mode` | string | Transport mode included in the result. |
-| `record_count` | integer | Number of data records used. |
-| `data_source` | string | Name of the dataset used. |
-| `limitations` | list[string] | Important limitations of the dataset or result. |
+- origin stop
+- destination stop
+- route
+- mode or operator
+- time period
+- ticket type
+- observed trip quantity
 
-### Example Input
+### Example Use
 
-```json
-{
-  "start_date": "2025-01-01",
-  "end_date": "2025-12-31",
-  "mode": "Train"
-}
-```
+User question:
 
-### Validation Rules
+> How many trips were made from outer-suburban areas to Brisbane?
 
-- `start_date` must be earlier than or equal to `end_date`.
-- Dates must be in a recognised format.
-- `mode` must match a supported value in the dataset.
-- The requested period must overlap with the available data.
-- Patronage values must be numeric and non-negative.
+The agent may call `get_od_trips` to retrieve the relevant observed OD records.
 
-### Error Cases
+### Current Status
 
-- Missing start or end date.
-- Invalid date format.
-- Start date later than end date.
-- Unsupported transport mode.
-- No records found for the requested period.
-- Missing or corrupted local dataset.
-- Required dataset columns are unavailable.
+Data available.
 
 ---
 
-## Tool 2: `simulate_fare_policy`
+## Tool 2: `get_stop_information`
 
 ### Purpose
 
-Estimate how a percentage fare adjustment may affect public transport patronage and fare revenue under an explicit fare-elasticity assumption.
+Retrieve spatial and descriptive information for a public transport stop.
 
-This is a scenario-analysis tool. It does not claim that the predicted result is a confirmed causal outcome.
-
-### Intended Use
-
-The tool can be used to evaluate questions such as:
-
-- What may happen to patronage if fares decrease by 10%?
-- What may happen to revenue if fares increase by 20%?
-- How does the result change under different fare-elasticity assumptions?
-- What are the trade-offs between patronage growth and fare revenue?
+This tool provides the geographic information required for fare-zone mapping and later spatial aggregation.
 
 ### Inputs
 
-| Parameter | Type | Required | Description |
-|---|---|---:|---|
-| `baseline_fare` | number | Yes | Fare before the policy change. Must be greater than zero. |
-| `baseline_patronage` | number | Yes | Patronage before the policy change. Must be non-negative. |
-| `fare_change_percentage` | number | Yes | Percentage fare change. Negative values represent fare reductions. |
-| `fare_elasticity` | number | Yes | Assumed percentage patronage response to a 1% fare change. |
-| `scenario_name` | string | No | Human-readable name for the scenario. |
-| `transport_mode` | string | No | Mode associated with the baseline patronage. |
-| `currency` | string | No | Currency code, such as `AUD`. Default may be `AUD`. |
-
-### Calculation Logic
-
-```text
-fare_change_rate = fare_change_percentage / 100
-new_fare = baseline_fare × (1 + fare_change_rate)
-patronage_change_rate = fare_elasticity × fare_change_rate
-estimated_patronage = baseline_patronage × (1 + patronage_change_rate)
-old_revenue = baseline_fare × baseline_patronage
-estimated_revenue = new_fare × estimated_patronage
-```
+- `stop_id`
 
 ### Outputs
 
-| Field | Type | Description |
-|---|---|---|
-| `scenario_name` | string | Name of the scenario. |
-| `new_fare` | number | Fare after the policy change. |
-| `estimated_patronage` | number | Estimated patronage after the fare change. |
-| `old_revenue` | number | Baseline fare revenue. |
-| `estimated_revenue` | number | Estimated fare revenue after the change. |
-| `patronage_change_percentage` | number | Estimated percentage change in patronage. |
-| `revenue_change_percentage` | number | Estimated percentage change in revenue. |
-| `input_parameters` | object | Parameters used in the simulation. |
-| `assumptions` | list[string] | Modelling assumptions. |
-| `limitations` | list[string] | Important limitations of the result. |
+- stop ID
+- stop name
+- stop type
+- latitude
+- longitude
 
-### Example Input
+### Example Use
 
-```json
-{
-  "scenario_name": "Ten percent fare reduction",
-  "baseline_fare": 0.50,
-  "baseline_patronage": 100000,
-  "fare_change_percentage": -10,
-  "fare_elasticity": -0.30,
-  "transport_mode": "All",
-  "currency": "AUD"
-}
-```
+The agent may use this tool when it needs to identify the geographic location of an origin or destination stop.
 
-### Example Output
+### Current Status
 
-```json
-{
-  "scenario_name": "Ten percent fare reduction",
-  "new_fare": 0.45,
-  "estimated_patronage": 103000,
-  "old_revenue": 50000,
-  "estimated_revenue": 46350,
-  "patronage_change_percentage": 3.0,
-  "revenue_change_percentage": -7.3,
-  "assumptions": [
-    "Fare elasticity remains constant within the tested range.",
-    "Service frequency and quality remain unchanged.",
-    "There is no external demand shock."
-  ],
-  "limitations": [
-    "This is a scenario estimate rather than a causal forecast.",
-    "Results depend strongly on the selected elasticity assumption."
-  ]
-}
-```
-
-### Validation Rules
-
-- `baseline_fare` must be greater than zero.
-- `baseline_patronage` must be zero or greater.
-- `fare_change_percentage` must be greater than `-100`.
-- `fare_elasticity` must be numeric.
-- The resulting fare must remain greater than zero.
-- The resulting patronage must not be negative.
-- All required parameters must be provided.
-
-### Error Cases
-
-- Missing baseline fare, patronage, fare change, or elasticity.
-- Baseline fare is zero or negative.
-- Baseline patronage is negative.
-- Fare reduction is 100% or more.
-- Non-numeric elasticity.
-- Estimated patronage becomes negative.
+Data available.
 
 ---
 
-## Tool 3: `compare_policy_scenarios`
+## Tool 3: `get_historical_zone`
 
 ### Purpose
 
-Compare the estimated patronage and revenue outcomes of multiple fare-policy scenarios using a common baseline.
+Determine the historical South East Queensland fare zone associated with a public transport stop.
 
-This tool helps identify trade-offs rather than declaring one policy universally best.
-
-### Intended Use
-
-The tool can be used to compare:
-
-- fare reductions and fare increases;
-- different fare-elasticity assumptions;
-- alternative policy designs;
-- scenarios prioritising patronage growth;
-- scenarios prioritising fare revenue.
+The tool uses the stop's geographic coordinates and historical fare-zone polygons.
 
 ### Inputs
 
-| Parameter | Type | Required | Description |
-|---|---|---:|---|
-| `baseline_fare` | number | Yes | Common baseline fare for all scenarios. |
-| `baseline_patronage` | number | Yes | Common baseline patronage for all scenarios. |
-| `scenarios` | list[object] | Yes | List of two or more fare-policy scenarios. |
-| `comparison_objective` | string | No | Optional objective such as `highest_patronage`, `highest_revenue`, or `balanced`. |
-| `currency` | string | No | Currency code, such as `AUD`. |
+- `stop_id`
 
-Each scenario should contain:
+or
 
-| Scenario Field | Type | Required | Description |
-|---|---|---:|---|
-| `name` | string | Yes | Unique scenario name. |
-| `fare_change_percentage` | number | Yes | Percentage fare change. |
-| `fare_elasticity` | number | Yes | Elasticity assumption for that scenario. |
-| `description` | string | No | Additional explanation of the policy. |
+- `latitude`
+- `longitude`
 
 ### Outputs
 
-| Field | Type | Description |
-|---|---|---|
-| `scenario_results` | list[object] | Full result for each scenario. |
-| `highest_patronage_scenario` | string/object | Scenario with the highest estimated patronage. |
-| `highest_revenue_scenario` | string/object | Scenario with the highest estimated revenue. |
-| `lowest_fare_scenario` | string/object | Scenario with the lowest estimated fare. |
-| `trade_off_summary` | object/string | Summary of the patronage–revenue trade-off. |
-| `ranking_basis` | string | Criterion used for any ranking. |
-| `assumptions` | list[string] | Shared assumptions across scenarios. |
-| `limitations` | list[string] | Important limitations of the comparison. |
+- stop ID
+- historical fare zone
+- boundary-zone indicator
+- zone mapping method
+- spatial match status
 
-### Example Input
+### Possible Zone Values
 
-```json
-{
-  "baseline_fare": 0.50,
-  "baseline_patronage": 100000,
-  "currency": "AUD",
-  "comparison_objective": "balanced",
-  "scenarios": [
-    {
-      "name": "Ten percent fare reduction",
-      "fare_change_percentage": -10,
-      "fare_elasticity": -0.30
-    },
-    {
-      "name": "Ten percent fare increase",
-      "fare_change_percentage": 10,
-      "fare_elasticity": -0.30
-    },
-    {
-      "name": "No fare change",
-      "fare_change_percentage": 0,
-      "fare_elasticity": -0.30
-    }
-  ]
-}
-```
+Examples include:
 
-### Validation Rules
+- `1`
+- `2`
+- `3`
+- `4`
+- `5`
+- `6`
+- `7`
+- `8`
+- `1/2`
+- `2/3`
+- `3/4`
+- `4/5`
+- `5/6`
+- `6/7`
+- `Airport`
 
-- At least two scenarios must be provided.
-- Every scenario must have a unique non-empty name.
-- Every scenario must include a valid fare-change percentage.
-- Every scenario must include a numeric elasticity value.
-- The common baseline fare must be greater than zero.
-- The common baseline patronage must be non-negative.
-- Invalid scenarios should be reported clearly rather than silently ignored.
+### Important Note
 
-### Error Cases
+Boundary zones require special treatment because they cannot always be interpreted as a single integer zone.
 
-- Fewer than two scenarios.
-- Duplicate scenario names.
-- Missing scenario parameters.
-- Invalid baseline values.
-- Fare reduction of 100% or more.
-- Non-numeric elasticity.
-- Unsupported comparison objective.
-- One or more scenarios produce invalid results.
+Historical Translink fare rules for these boundary locations must be validated before fare reconstruction is finalised.
+
+### Current Status
+
+Historical fare-zone polygons are available.
+
+Core spatial mapping is feasible.
+
+Boundary-zone fare rules still require validation.
 
 ---
 
-## Shared Design Principles
+## Tool 4: `calculate_historical_fare`
 
-All three tools should follow these principles:
+### Purpose
 
-1. **Structured output** — return machine-readable results for an orchestrator or another agent.
-2. **Explicit assumptions** — state all assumptions behind calculations.
-3. **Clear limitations** — do not present scenario estimates as confirmed causal effects.
-4. **Input validation** — reject invalid values with informative errors.
-5. **Reproducibility** — return input parameters, data period, and data source.
-6. **Interoperability** — use stable field names and consistent data types.
-7. **Separation of responsibilities** — observed-data retrieval, single-scenario simulation, and multi-scenario comparison remain separate.
+Reconstruct the fare that would have applied to an observed trip under the historical South East Queensland fare system.
 
-## Relationship Between Tools
+### Inputs
 
-```text
-get_patronage_summary
-        |
-        | provides baseline patronage
-        v
-simulate_fare_policy
-        |
-        | produces one scenario result
-        v
-compare_policy_scenarios
-        |
-        | compares multiple results
-        v
-Orchestrator / Other Smart-Mobility Agents
-```
+- `origin_stop`
+- `destination_stop`
+- `ticket_type` — where supported
+- `travel_time` — where required for peak/off-peak rules
+- `fare_table_version`
 
-## Current Status
+### Processing
 
-These specifications are an initial Week 2 draft. They should be revised during Week 3 scoping after confirming:
+The tool will:
 
-- final dataset fields;
-- approved capability slot;
-- acceptable fare-elasticity sources;
-- MCP starter-kit conventions;
-- required input and output schemas;
-- course evaluation requirements.
+1. identify the historical origin zone;
+2. identify the historical destination zone;
+3. determine the number of fare zones travelled;
+4. apply the appropriate historical fare table;
+5. return the reconstructed fare.
+
+### Outputs
+
+- origin zone
+- destination zone
+- zones travelled
+- historical fare
+- fare category
+- fare-table version
+- calculation status
+- assumptions or warnings
+
+### Important Limitations
+
+The final pre-50-cent fare table must be validated before the tool is considered complete.
+
+Boundary-zone rules require explicit historical fare-rule validation.
+
+Airport or Airtrain trips may require special handling or exclusion because they were subject to different fare arrangements.
+
+### Current Status
+
+Partially implemented conceptually.
+
+Historical fare-table validation is still required.
+
+---
+
+## Tool 5: `calculate_fare_benefit`
+
+### Purpose
+
+Calculate the monetary benefit generated by a selected fare policy for an observed OD trip.
+
+### Inputs
+
+- `historical_fare`
+- `scenario_fare`
+- `trip_quantity`
+
+### Core Calculations
+
+`fare_saving_per_trip = historical_fare - scenario_fare`
+
+`realised_fare_benefit = fare_saving_per_trip × trip_quantity`
+
+### Outputs
+
+- historical fare
+- scenario fare
+- fare saving per trip
+- observed trip quantity
+- realised fare benefit
+
+### Example
+
+If the historical fare was `$4.50`, the scenario fare is `$0.50`, and 100 observed trips were made:
+
+`fare_saving_per_trip = 4.50 - 0.50 = 4.00`
+
+`realised_fare_benefit = 4.00 × 100 = 400`
+
+### Current Status
+
+Planned as one of the first deterministic MCP tools.
+
+---
+
+## Tool 6: `aggregate_spatial_benefits`
+
+### Purpose
+
+Aggregate OD-level fare-benefit results into meaningful geographic or transport categories.
+
+### Inputs
+
+- fare-benefit records
+- `group_by`
+
+Possible `group_by` values may include:
+
+- origin fare zone
+- destination fare zone
+- origin SA2
+- destination SA2
+- transport mode
+- travel-distance group
+
+### Outputs
+
+For each group:
+
+- total observed trips
+- average historical fare
+- average scenario fare
+- average fare saving per trip
+- total realised fare benefit
+- share of total realised fare benefit
+
+Additional metrics may later include:
+
+- benefit per resident
+- benefit per public transport trip
+
+### Example Use
+
+User question:
+
+> Which areas receive the largest total benefit from the 50-cent fare?
+
+The agent may first calculate OD-level benefits and then call `aggregate_spatial_benefits`.
+
+### Current Status
+
+Planned.
+
+---
+
+## Tool 7: `get_socioeconomic_profile`
+
+### Purpose
+
+Retrieve socioeconomic information for a geographic area.
+
+This tool will support distributional and equity analysis.
+
+### Inputs
+
+- `SA2_code`
+
+or
+
+- geographic area identifier
+
+### Planned Outputs
+
+- SA2 name
+- population
+- SEIFA IRSD score
+- SEIFA decile
+- median household income
+- car ownership
+- unemployment or other relevant indicators
+
+### Example Use
+
+User question:
+
+> Are areas receiving the largest fare benefits also socioeconomically disadvantaged?
+
+The agent may retrieve the socioeconomic profile of each relevant SA2 after spatial benefit aggregation.
+
+### Important Limitation
+
+These indicators describe areas rather than individual passengers.
+
+The tool must not infer that every passenger travelling from a disadvantaged area is individually disadvantaged.
+
+### Current Status
+
+Planned.
+
+ABS SA2 and SEIFA data still need to be integrated.
+
+---
+
+## Tool 8: `assess_equity_alignment`
+
+### Purpose
+
+Compare the spatial distribution of fare-policy benefits with socioeconomic disadvantage.
+
+### Inputs
+
+- spatial fare-benefit results
+- socioeconomic indicators
+- selected equity metric
+
+### Possible Analysis
+
+The tool may calculate or compare:
+
+- realised benefit by SEIFA decile
+- average benefit by disadvantage group
+- benefit per resident
+- share of total benefit received by disadvantaged areas
+- relationship between benefit and IRSD score
+
+### Outputs
+
+- equity summary
+- benefit distribution by socioeconomic group
+- selected quantitative indicators
+- warnings and limitations
+
+### Example Use
+
+User question:
+
+> Were the benefits of the 50-cent fare concentrated in disadvantaged communities?
+
+### Current Status
+
+Planned after socioeconomic data integration.
+
+---
+
+## Tool 9: `compare_policy_scenarios`
+
+### Purpose
+
+Compare the monetary, spatial, and socioeconomic effects of alternative fare-policy scenarios.
+
+### Inputs
+
+- `scenario_a`
+- `scenario_b`
+- observed OD trips
+- optional geographic grouping
+- optional socioeconomic grouping
+
+### Example Scenarios
+
+- `$0.50 flat fare`
+- `$1 flat fare`
+- `$2 flat fare`
+- targeted concession fare
+- historical zone-based fare structure
+
+### Outputs
+
+- total passenger payment under each scenario
+- total realised benefit under each scenario
+- average saving per trip
+- spatial distribution of benefits
+- socioeconomic distribution of benefits
+- differences between scenarios
+
+### Important Assumption
+
+The initial version will hold observed travel demand constant.
+
+Therefore, this tool compares the distributional consequences of different fare rules but does not initially predict passenger-demand responses to fare changes.
+
+### Current Status
+
+Planned.
+
+---
+
+## Optional Tool 10: `retrieve_policy_evidence`
+
+### Purpose
+
+Retrieve relevant academic or policy evidence that can help interpret analytical results.
+
+### Inputs
+
+- policy question
+- topic
+- optional keywords
+
+### Possible Topics
+
+- flat-fare equity
+- fare elasticity
+- fare-free public transport
+- spatial equity
+- socioeconomic transport disadvantage
+- policy evaluation limitations
+
+### Outputs
+
+- relevant evidence
+- source information
+- short evidence summary
+
+### Example Use
+
+User question:
+
+> Is a flat fare generally considered more equitable than a distance-based fare?
+
+The agent may use this tool to provide supporting evidence rather than relying only on its internal language-model knowledge.
+
+### Current Status
+
+Optional extension.
+
+---
+
+# Example Agent Workflow
+
+User question:
+
+> Which outer-suburban areas benefited most from Queensland's 50-cent fare, and were those benefits concentrated in disadvantaged communities?
+
+The AI agent may perform the following workflow:
+
+1. call `get_od_trips`;
+2. identify relevant origin and destination stops;
+3. call `get_historical_zone`;
+4. call `calculate_historical_fare`;
+5. call `calculate_fare_benefit`;
+6. call `aggregate_spatial_benefits`;
+7. call `get_socioeconomic_profile`;
+8. call `assess_equity_alignment`;
+9. synthesise the tool outputs into a natural-language policy response.
+
+The language model does not directly calculate the monetary values.
+
+It coordinates deterministic tools and explains the results.
+
+---
+
+# Tool Development Priority
+
+## Phase 1: Core Data Tools
+
+1. `get_od_trips`
+2. `get_stop_information`
+3. `get_historical_zone`
+
+## Phase 2: Core Analytical Tools
+
+4. `calculate_historical_fare`
+5. `calculate_fare_benefit`
+6. `aggregate_spatial_benefits`
+
+## Phase 3: Equity Analysis
+
+7. `get_socioeconomic_profile`
+8. `assess_equity_alignment`
+
+## Phase 4: Policy Exploration
+
+9. `compare_policy_scenarios`
+
+## Optional Extension
+
+10. `retrieve_policy_evidence`
